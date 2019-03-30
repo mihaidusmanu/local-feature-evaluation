@@ -14,17 +14,20 @@ import multiprocessing
 
 import numpy as np
 
+from tqdm import tqdm
+
 
 IS_PYTHON3 = sys.version_info[0] >= 3
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_path", required=True,
                         help="Path to the dataset, e.g., path/to/Fountain")
-    parser.add_argument("--colmap_path", required=True,
+    parser.add_argument("--colmap_path", default="/home/mihai/sources/tools/colmap/build/src/exe",
                         help="Path to the COLMAP executable folder, e.g., "
                              "path/to/colmap/build/src/exe")
+    parser.add_argument("--method_name", required=True, 
+                        help="Name of the method")
     args = parser.parse_args()
     return args
 
@@ -43,8 +46,13 @@ def read_matrix(path, dtype):
     return matrix.reshape(shape)
 
 
+def read_matrix_file(fid, dtype):
+    shape = np.fromfile(fid, count=2, dtype=np.int32)
+    matrix = np.fromfile(fid, count=shape[0] * shape[1], dtype=dtype)
+    return matrix.reshape(shape)
+
 def import_matches(args):
-    connection = sqlite3.connect(os.path.join(args.dataset_path, "database.db"))
+    connection = sqlite3.connect(os.path.join(args.dataset_path, args.method_name + ".db"))
     cursor = connection.cursor()
 
     cursor.execute("SELECT name FROM sqlite_master "
@@ -68,12 +76,12 @@ def import_matches(args):
     for row in cursor:
         images[row[0]] = row[1]
 
-    for image_name, image_id in images.items():
-        print("Importing features for", image_name)
-        keypoint_path = os.path.join(args.dataset_path, "keypoints",
+    for image_name, image_id in tqdm(images.items(), total = len(images.items())):
+        #print("Importing features for", image_name)
+        keypoint_path = os.path.join(args.dataset_path, "keypoints-" + args.method_name,
                                      image_name + ".bin")
         keypoints = read_matrix(keypoint_path, np.float32)
-        descriptor_path = os.path.join(args.dataset_path, "descriptors",
+        descriptor_path = os.path.join(args.dataset_path, "descriptors-" + args.method_name,
                                      image_name + ".bin")
         descriptors = read_matrix(descriptor_path, np.float32)
         assert keypoints.shape[1] == 4
@@ -90,18 +98,19 @@ def import_matches(args):
 
     image_pairs = []
     image_pair_ids = set()
-    for match_path in glob.glob(os.path.join(args.dataset_path,
-                                             "matches/*---*.bin")):
-        image_name1, image_name2 = \
-            os.path.basename(match_path[:-4]).split("---")
+    pairs_file = open(os.path.join(args.dataset_path, "matches-" + args.method_name + "/pairs.txt"), "r")
+    matches_file = open(os.path.join(args.dataset_path, "matches-" + args.method_name + "/matches.bin"), "rb")
+    pairs = pairs_file.readlines()
+    for pair in tqdm(pairs, total = len(pairs)):
+        image_name1, image_name2 = pair.strip('\n').split(' ')
         image_pairs.append((image_name1, image_name2))
-        print("Importing matches for", image_name1, "---", image_name2)
+        #print("Importing matches for", image_name1, "---", image_name2)
         image_id1, image_id2 = images[image_name1], images[image_name2]
         image_pair_id = image_ids_to_pair_id(image_id1, image_id2)
         if image_pair_id in image_pair_ids:
             continue
         image_pair_ids.add(image_pair_id)
-        matches = read_matrix(match_path, np.uint32)
+        matches = read_matrix_file(matches_file, np.uint32)
         assert matches.shape[1] == 2
         if IS_PYTHON3:
             matches_str = matches.tostring()
@@ -112,6 +121,8 @@ def import_matches(args):
                        (image_pair_id, matches.shape[0], matches.shape[1],
                         matches_str))
         connection.commit()
+    pairs_file.close()
+    matches_file.close()
 
     with open(os.path.join(args.dataset_path, "image-pairs.txt"), "w") as fid:
         for image_name1, image_name2 in image_pairs:
@@ -119,16 +130,16 @@ def import_matches(args):
 
     cursor.close()
     connection.close()
-
+    
     subprocess.call([os.path.join(args.colmap_path, "colmap"),
                      "matches_importer",
                      "--database_path",
-                     os.path.join(args.dataset_path, "database.db"),
+                     os.path.join(args.dataset_path, args.method_name + ".db"),
                      "--match_list_path",
                      os.path.join(args.dataset_path, "image-pairs.txt"),
                      "--match_type", "pairs"])
-
-    connection = sqlite3.connect(os.path.join(args.dataset_path, "database.db"))
+    
+    connection = sqlite3.connect(os.path.join(args.dataset_path, args.method_name + ".db"))
     cursor = connection.cursor()
 
     cursor.execute("SELECT count(*) FROM images;")
@@ -149,16 +160,16 @@ def import_matches(args):
 
 
 def reconstruct(args):
-    database_path = os.path.join(args.dataset_path, "database.db")
+    database_path = os.path.join(args.dataset_path, args.method_name + ".db")
     image_path = os.path.join(args.dataset_path, "images")
-    sparse_path = os.path.join(args.dataset_path, "sparse")
-    dense_path = os.path.join(args.dataset_path, "dense")
+    sparse_path = os.path.join(args.dataset_path, "sparse-" + args.method_name)
+    dense_path = os.path.join(args.dataset_path, "dense-" + args.method_name)
 
     if not os.path.exists(sparse_path):
         os.makedirs(sparse_path)
     if not os.path.exists(dense_path):
         os.makedirs(dense_path)
-
+    
     # Run the sparse reconstruction.
 
     subprocess.call([os.path.join(args.colmap_path, "colmap"),
@@ -168,7 +179,7 @@ def reconstruct(args):
                      "--export_path", sparse_path,
                      "--Mapper.num_threads",
                      str(min(multiprocessing.cpu_count(), 16))])
-
+    
     # Find the largest reconstructed sparse model.
 
     models = os.listdir(sparse_path)
@@ -276,7 +287,7 @@ def main():
     print(78 * "=")
     print("| " + " | ".join(
             map(str, [os.path.basename(args.dataset_path),
-                      "METHOD",
+                      args.method_name,
                       matching_stats["num_images"],
                       reconstruction_stats["num_reg_images"],
                       reconstruction_stats["num_sparse_points"],

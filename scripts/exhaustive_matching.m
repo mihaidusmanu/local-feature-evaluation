@@ -3,6 +3,7 @@
 num_blocks = ceil(num_images / MATCH_BLOCK_SIZE);
 num_pairs_per_block = MATCH_BLOCK_SIZE * (MATCH_BLOCK_SIZE - 1) / 2;
 
+pairs_file = fopen(fullfile(MATCH_PATH, 'pairs.txt'), 'w');
 for start_idx1 = 1:MATCH_BLOCK_SIZE:num_images
     end_idx1 = min(num_images, start_idx1 + MATCH_BLOCK_SIZE - 1);
     for start_idx2 = 1:MATCH_BLOCK_SIZE:num_images
@@ -45,24 +46,20 @@ for start_idx1 = 1:MATCH_BLOCK_SIZE:num_images
                         oidx2 = idx1;
                     end
 
-                    % Check if matches already computed.
-                    matches_path = fullfile(...
-                        MATCH_PATH, sprintf('%s---%s.bin', ...
-                        image_names{oidx1}, image_names{oidx2}));
-                    if exist(matches_path, 'file')
-                        continue;
-                    end
+                    matches_path = fullfile(MATCH_PATH, 'matches.bin');
 
-                    % Match the descriptors.
+                    % Match the descriptors
                     matches = match_descriptors(descriptors(oidx1), ...
                                                 descriptors(oidx2), ...
-                                                MATCH_MAX_DIST_RATIO);
+                                                MATCH_MAX_DIST_RATIO);                                                 
 
                     % Write the matches.
+                    fprintf(pairs_file, '%s %s\n', image_names{oidx1}, image_names{oidx2});
                     if size(matches, 1) < MIN_NUM_MATCHES
                         matches = zeros(0, 2, 'uint32');
                     end
-                    write_matches(matches_path, matches);
+                    append_matches(matches_path, matches);
+
                 end
             end
         end
@@ -70,6 +67,7 @@ for start_idx1 = 1:MATCH_BLOCK_SIZE:num_images
         fprintf(' in %.3fs\n', toc);
     end
 end
+fclose(pairs_file);
 
 % Clear the GPU memory.
 clear descriptors;

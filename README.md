@@ -1,19 +1,25 @@
 Comparative Evaluation of Hand-Crafted and Learned Local Features
 =================================================================
 
-This repository contains the instructions and the code for evaluating feature
-descriptors on our image-based reconstruction benchmark. The details of our
-local feature benchmark can be found in our paper:
-
+Please check the official repository of the Local Feature Evaluation Benchmark:
+    
     "Comparative Evaluation of Hand-Crafted and Learned Local Features".
     J.L. Schönberger, H. Hardmeier, T. Sattler and M. Pollefeys. CVPR 2017.
 
   [Paper](https://demuc.de/papers/schoenberger2017comparative.pdf),
   [Supplementary](https://demuc.de/papers/schoenberger2017comparative_supp.pdf),
-  [Bibtex](https://demuc.de/papers/schoenberger2017comparative.bib)
+  [Bibtex](https://demuc.de/papers/schoenberger2017comparative.bib),
+  [Repository](https://github.com/ahojnnes/local-feature-evaluation)
 
-You might also be interested in the [*HPatches*](https://hpatches.github.io/)
-benchmark by Balntas and Lenc et al. presented at CVPR 2017.
+This repository integrates two changes:
+
+1. All matches are saved in a single binary file. This might be useful if the number 
+of available inodes is limited. However, it comes with a serious drawback: the current
+implementation starts from scratch in case of a crash.
+
+2. Local features are loaded from MAT files with two fields: `keypoints` and `descriptors`.
+The shapes of the respective fields are assumed to be `N x 2` and `N x D` where `N` is the
+number of keypoints and `D` is the dimensionality of descriptors.
 
 
 Benchmark Results
